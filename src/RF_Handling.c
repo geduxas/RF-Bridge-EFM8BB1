@@ -640,22 +640,31 @@ void Bucket_Received(uint16_t duration, bool high_low)
 				// check if bucket was already received
 				if (!findBucket(duration, &bucket_index))
 				{
+					// check if maximum of array got reached
+					if (bucket_count >= ARRAY_LENGTH(buckets))
+					{
+						// restart sync
+						rf_state = RF_IDLE;
+						break;
+					}
+
 					// new bucket received, add to array
 					buckets[bucket_count] = duration;
 					bucket_index = bucket_count;
 					bucket_count++;
-
-					// check if maximum of array got reached
-					if (bucket_count > ARRAY_LENGTH(buckets))
-					{
-						// restart sync
-						rf_state = RF_IDLE;
-					}
 				}
 
 				// fill rf data with the current bucket number
 				if (actual_byte_high_nibble)
 				{
+					// check if maximum of array got reached
+					if (actual_byte >= RF_DATA_BUFFERSIZE)
+					{
+						// restart sync
+						rf_state = RF_IDLE;
+						break;
+					}
+
 					RF_DATA[actual_byte] = (bucket_index << 4) | ((uint8_t)high_low << 7);
 				}
 				else
@@ -665,13 +674,6 @@ void Bucket_Received(uint16_t duration, bool high_low)
 					crc = Compute_CRC8_Simple_OneByte(crc ^ RF_DATA[actual_byte]);
 
 					actual_byte++;
-
-					// check if maximum of array got reached
-					if (actual_byte > RF_DATA_BUFFERSIZE)
-					{
-						// restart sync
-						rf_state = RF_IDLE;
-					}
 				}
 
 				actual_byte_high_nibble = !actual_byte_high_nibble;
