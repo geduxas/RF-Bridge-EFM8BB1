@@ -356,8 +356,17 @@ bool buffer_out(SI_VARIABLE_SEGMENT_POINTER(bucket, uint16_t, SI_SEG_XDATA))
 
 void PCA0_channel0EventCb()
 {
-	uint16_t current_capture_value = PCA0CP0 * 10;
+	uint16_t current_capture_value = PCA0CP0;
 	uint8_t flags = PCA0MD;
+
+	if (current_capture_value > 3276)
+	{
+		current_capture_value = 0x7FFF;
+	}
+	else
+	{
+		current_capture_value *= 10;
+	}
 
 	// clear counter
 	PCA0MD &= 0xBF;
@@ -365,16 +374,7 @@ void PCA0_channel0EventCb()
 	PCA0L = 0x00;
 	PCA0MD = flags;
 
-	// if bucket is no noise add it to buffer
-	if (/*current_capture_value > MIN_PULSE_LENGTH &&*/ current_capture_value < 0x8000)
-	{
-		buffer_in(current_capture_value | ((uint16_t)(!R_DATA) << 15));
-	}
-	else
-	{
-		// received noise, clear all received buckets
-		buffer_buckets_positions = 0;
-	}
+	buffer_in(current_capture_value | ((uint16_t)(!R_DATA) << 15));
 }
 
 void PCA0_channel1EventCb() { }
