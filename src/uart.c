@@ -26,7 +26,7 @@ SI_SEGMENT_VARIABLE(UART_Buffer_Write_Len, static volatile uint8_t,  SI_SEG_XDAT
 SI_SEGMENT_VARIABLE(lastRxError, static volatile uint8_t,  SI_SEG_XDATA)=0;
 SI_SEGMENT_VARIABLE(TX_Finished, bool, SI_SEG_DATA) = false;
 SI_SEGMENT_VARIABLE(uart_state, uart_state_t, SI_SEG_XDATA) = IDLE;
-SI_SEGMENT_VARIABLE(uart_command, uart_command_t, SI_SEG_XDATA) = NONE;
+SI_SEGMENT_VARIABLE(uart_command, uart_command_t, SI_SEG_XDATA) = RF_CODE_RFIN;
 
 //-----------------------------------------------------------------------------
 // UART ISR Callbacks

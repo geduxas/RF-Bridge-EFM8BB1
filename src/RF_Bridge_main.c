@@ -34,7 +34,8 @@ void SiLabs_Startup (void)
 
 }
 
-SI_SEGMENT_VARIABLE(ReadUARTData, bool, SI_SEG_DATA) = true;
+SI_SEGMENT_VARIABLE(ReadUARTData, static bool, SI_SEG_DATA) = true;
+SI_SEGMENT_VARIABLE(last_sniffing_command, static uart_command_t, SI_SEG_XDATA) = RF_CODE_RFIN;
 
 void finish_command(uint8_t command)
 {
@@ -45,7 +46,8 @@ void finish_command(uint8_t command)
 	ReadUARTData = true;
 
 	// restart sniffing in its previous mode
-	PCA0_DoSniffing(last_sniffing_command);
+	PCA0_DoSniffing();
+	uart_command = last_sniffing_command;
 }
 
 //-----------------------------------------------------------------------------
@@ -53,7 +55,6 @@ void finish_command(uint8_t command)
 // ----------------------------------------------------------------------------
 int main (void)
 {
-	SI_SEGMENT_VARIABLE(last_sniffing_mode, rf_sniffing_mode_t, SI_SEG_XDATA);
 	SI_SEGMENT_VARIABLE(tr_repeats, uint8_t, SI_SEG_XDATA);
 	SI_SEGMENT_VARIABLE(l, uint16_t, SI_SEG_XDATA);
 	SI_SEGMENT_VARIABLE(bucket, uint16_t, SI_SEG_XDATA);
@@ -72,9 +73,7 @@ int main (void)
 	// start sniffing if enabled by default
 #if Sniffing_On == 1
 	// set desired sniffing type to PT2260
-	sniffing_mode = STANDARD;
-	PCA0_DoSniffing(RF_CODE_RFIN);
-	last_sniffing_command = RF_CODE_RFIN;
+	PCA0_DoSniffing();
 #else
 	PCA0_StopSniffing();
 #endif
@@ -138,11 +137,10 @@ int main (void)
 
 				// sync byte got received, read command
 				case SYNC_INIT:
-					uart_command = rxdata & 0xFF;
 					uart_state = SYNC_FINISH;
 
 					// check if some data needs to be received
-					switch(uart_command)
+					switch(rxdata & 0xFF)
 					{
 						case RF_CODE_LEARN:
 							InitTimer3_ms(1, 50);
@@ -152,8 +150,7 @@ int main (void)
 							BUZZER = BUZZER_OFF;
 
 							// set desired RF protocol PT2260
-							sniffing_mode = STANDARD;
-							last_sniffing_command = PCA0_DoSniffing(RF_CODE_LEARN);
+							PCA0_DoSniffing();
 
 							// start timeout timer
 							InitTimer3_ms(1, 30000);
@@ -176,16 +173,15 @@ int main (void)
 						case RF_ALTERNATIVE_FIRMWARE:
 							break;
 						case RF_CODE_SNIFFING_ON:
-							sniffing_mode = ADVANCED;
-							PCA0_DoSniffing(RF_CODE_SNIFFING_ON);
+							PCA0_DoSniffing();
 							last_sniffing_command = RF_CODE_SNIFFING_ON;
 							break;
 						case RF_CODE_SNIFFING_OFF:
 							// set desired RF protocol PT2260
-							sniffing_mode = STANDARD;
 							// re-enable default RF_CODE_RFIN sniffing
-							PCA0_DoSniffing(RF_CODE_RFIN);
+							PCA0_DoSniffing();
 							last_sniffing_command = RF_CODE_RFIN;
+							rxdata = RF_CODE_RFIN;
 							break;
 						case RF_CODE_RFOUT_NEW:
 							tr_repeats = RF_TRANSMIT_REPEATS;
@@ -198,7 +194,8 @@ int main (void)
 							uart_state = RECEIVE_LEN;
 							break;
 						case RF_CODE_SNIFFING_ON_BUCKET:
-							last_sniffing_command = PCA0_DoSniffing(RF_CODE_SNIFFING_ON_BUCKET);
+							PCA0_DoSniffing();
+							last_sniffing_command = RF_CODE_SNIFFING_ON_BUCKET;
 							break;
 #endif
 						case RF_CODE_LEARN_NEW:
@@ -209,25 +206,22 @@ int main (void)
 							BUZZER = BUZZER_OFF;
 
 							// enable sniffing for all known protocols
-							last_sniffing_mode = sniffing_mode;
-							sniffing_mode = ADVANCED;
-							last_sniffing_command = PCA0_DoSniffing(RF_CODE_LEARN_NEW);
+							PCA0_DoSniffing();
 
 							// start timeout timer
 							InitTimer3_ms(1, 30000);
 							break;
 						case RF_CODE_ACK:
 							// re-enable default RF_CODE_RFIN sniffing
-							last_sniffing_command = PCA0_DoSniffing(last_sniffing_command);
-							uart_state = IDLE;
 							break;
 
 						// unknown command
 						default:
-							uart_command = NONE;
+							rxdata = uart_command;
 							uart_state = IDLE;
 							break;
 					}
+					uart_command = rxdata & 0xFF;
 					break;
 
 				// Receiving UART data length
@@ -279,8 +273,12 @@ int main (void)
 #endif
 								// send acknowledge
 								uart_put_command(RF_CODE_ACK);
+								ReadUARTData = true;
+								break;
 							case RF_CODE_ACK:
 								// enable UART again
+								PCA0_DoSniffing();
+								uart_command = last_sniffing_command;
 								ReadUARTData = true;
 								break;
 #if INCLUDE_BUCKET_SNIFFING == 1
@@ -315,13 +313,14 @@ int main (void)
 					switch(uart_command)
 					{
 						case RF_CODE_LEARN:
-							PCA0_DoSniffing(last_sniffing_command);
+							PCA0_DoSniffing();
+							uart_command  = last_sniffing_command;
 							uart_put_RF_Data_Standard(RF_CODE_LEARN_OK);
 							break;
 
 						case RF_CODE_LEARN_NEW:
-							sniffing_mode = last_sniffing_mode;
-							PCA0_DoSniffing(last_sniffing_command);
+							PCA0_DoSniffing();
+							uart_command  = last_sniffing_command;
 							uart_put_RF_Data_Advanced(RF_CODE_LEARN_OK_NEW, RF_DATA_STATUS & 0x7F);
 							break;
 					}
@@ -360,7 +359,7 @@ int main (void)
 				{
 					// handle new received buckets
 					if (buffer_out(&bucket))
-						HandleRFBucket(bucket & 0x7FFF, (bool)((bucket & 0x8000) >> 15));
+						HandleRFBucket(uart_command == RF_CODE_LEARN ? STANDARD : ADVANCED, bucket & 0x7FFF, (bool)((bucket & 0x8000) >> 15));
 				}
 				break;
 
@@ -392,7 +391,7 @@ int main (void)
 				{
 					// handle new received buckets
 					if (buffer_out(&bucket))
-						HandleRFBucket(bucket & 0x7FFF, (bool)((bucket & 0x8000) >> 15));
+						HandleRFBucket(uart_command == RF_CODE_RFIN ? STANDARD : ADVANCED, bucket & 0x7FFF, (bool)((bucket & 0x8000) >> 15));
 				}
 				break;
 

@@ -20,9 +20,6 @@ SI_SEGMENT_VARIABLE(RF_DATA[RF_DATA_BUFFERSIZE], uint8_t, SI_SEG_XDATA);
 // Bit 6-0:	Protocol identifier
 SI_SEGMENT_VARIABLE(RF_DATA_STATUS, uint8_t, SI_SEG_XDATA) = 0;
 SI_SEGMENT_VARIABLE(rf_state, rf_state_t, SI_SEG_XDATA) = RF_IDLE;
-SI_SEGMENT_VARIABLE(sniffing_mode, rf_sniffing_mode_t, SI_SEG_XDATA) = STANDARD;
-
-SI_SEGMENT_VARIABLE(last_sniffing_command, uint8_t, SI_SEG_XDATA) = NONE;
 
 // PT226x variables
 SI_SEGMENT_VARIABLE(SYNC_LOW, uint16_t, SI_SEG_XDATA) = 0x00;
@@ -232,7 +229,7 @@ bool DecodeBucket(uint8_t i, bool high_low, uint16_t duration,
 	return false;
 }
 
-void HandleRFBucket(uint16_t duration, bool high_low)
+void HandleRFBucket(rf_sniffing_mode_t sniffing_mode, uint16_t duration, bool high_low)
 {
 	uint8_t i = 0;
 
@@ -389,10 +386,8 @@ void SetTimer0Overflow(uint8_t T0_Overflow)
 	TH0 = (T0_Overflow << TH0_TH0__SHIFT);
 }
 
-uint8_t PCA0_DoSniffing(uint8_t active_command)
+void PCA0_DoSniffing(void)
 {
-	uint8_t ret = last_sniffing_command;
-
 	memset(status, 0, sizeof(PROTOCOL_STATUS) * PROTOCOLCOUNT);
 
 	// restore timer to 100000Hz, 10µs interval
@@ -410,14 +405,6 @@ uint8_t PCA0_DoSniffing(uint8_t active_command)
 
 	rf_state = RF_IDLE;
 	RF_DATA_STATUS = 0;
-
-	// set uart_command back if sniffing was on
-	uart_command = active_command;
-
-	// backup uart_command to be able to enable the sniffing again
-	last_sniffing_command = active_command;
-
-	return ret;
 }
 
 void PCA0_StopSniffing(void)
