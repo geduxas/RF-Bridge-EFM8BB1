@@ -68,10 +68,9 @@ extern SI_SEGMENT_VARIABLE(BIT_LOW, uint16_t, SI_SEG_XDATA);
 
 extern SI_SEGMENT_VARIABLE(actual_byte, uint8_t, SI_SEG_XDATA);
 
-extern SI_SEGMENT_VARIABLE(buckets[7], uint16_t, SI_SEG_XDATA);
+extern SI_SEGMENT_VARIABLE(buckets[8], uint16_t, SI_SEG_XDATA);
 
 #if INCLUDE_BUCKET_SNIFFING == 1
-extern SI_SEGMENT_VARIABLE(bucket_sync, uint16_t, SI_SEG_XDATA);
 extern SI_SEGMENT_VARIABLE(bucket_count, uint8_t, SI_SEG_XDATA);
 #endif
 

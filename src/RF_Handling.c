@@ -36,10 +36,9 @@ SI_SEGMENT_VARIABLE(old_crc, uint8_t, SI_SEG_XDATA) = 0;
 SI_SEGMENT_VARIABLE(crc, uint8_t, SI_SEG_XDATA) = 0;
 
 // up to 8 timing buckets for RF_CODE_SNIFFING_ON_BUCKET
-SI_SEGMENT_VARIABLE(buckets[7], uint16_t, SI_SEG_XDATA);	// -1 because of the bucket_sync
+SI_SEGMENT_VARIABLE(buckets[8], uint16_t, SI_SEG_XDATA);
 
 #if INCLUDE_BUCKET_SNIFFING == 1
-SI_SEGMENT_VARIABLE(bucket_sync, uint16_t, SI_SEG_XDATA);
 SI_SEGMENT_VARIABLE(bucket_count, uint8_t, SI_SEG_XDATA) = 0;
 #endif
 
@@ -572,11 +571,11 @@ void Bucket_Received(uint16_t duration, bool high_low)
 
 			if (high_low && duration >= BUCKET_SYNC_MIN)
 			{
-				bucket_sync = duration | ((uint16_t)high_low << 15);
-				bucket_count = 0;
+				buckets[0] = duration;
+				bucket_count = 1;
 				actual_byte = 0;
 				actual_byte_high_nibble = false;
-				RF_DATA[0] = 0;
+				RF_DATA[0] = 0x80;
 				rf_state = RF_BUCKET_IN_SYNC;
 			}
 			break;
@@ -641,12 +640,6 @@ void Bucket_Received(uint16_t duration, bool high_low)
 					    rf_state = RF_IDLE;
 					    break;
 					}
-
-					// add sync bucket number to data
-					RF_DATA[0] |= ((bucket_count << 4) | ((bucket_sync & 0x8000) >> 8));
-
-					// clear high/low flag
-					bucket_sync &= 0x7FFF;
 
 					RF_DATA_STATUS |= RF_DATA_RECEIVED_MASK;
 
