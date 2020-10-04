@@ -47,6 +47,7 @@ SI_SEGMENT_VARIABLE(bucket_count, uint8_t, SI_SEG_XDATA) = 0;
 #define INC_W_POSITION(x) ((x) = ((((x) >> 4) + 1) << 4) | ((x) & 0x0F))
 #define DEC_W_POSITION(x) ((x) = ((((x) >> 4) - 1) << 4) | ((x) & 0x0F))
 #define CLR_W_POSITION(x) ((x) &= 0x0F)
+#define SET_W_POSITION(x, y) ((x) = ((y) << 4) | ((x) & 0x0F))
 
 #define GET_R_POSITION(x) ((x) & 0x0F)
 #define INC_R_POSITION(x) ((x) = ((x) + 1) | ((x) & 0xF0))
@@ -311,8 +312,8 @@ void HandleRFBucket(rf_sniffing_mode_t sniffing_mode, uint16_t duration, bool hi
 
 void buffer_in(uint16_t bucket)
 {
-	if ((GET_W_POSITION(buffer_buckets_positions) + 1 == GET_R_POSITION(buffer_buckets_positions)) ||
-			(GET_R_POSITION(buffer_buckets_positions) == 0 && GET_W_POSITION(buffer_buckets_positions) + 1 == ARRAY_LENGTH(buffer_buckets)))
+	// invalid wpos means a full buffer
+	if (GET_W_POSITION(buffer_buckets_positions) >= ARRAY_LENGTH(buffer_buckets))
 		return;
 
 	buffer_buckets[GET_W_POSITION(buffer_buckets_positions)] = bucket;
@@ -321,6 +322,11 @@ void buffer_in(uint16_t bucket)
 
 	if (GET_W_POSITION(buffer_buckets_positions) >= ARRAY_LENGTH(buffer_buckets))
 		CLR_W_POSITION(buffer_buckets_positions);
+
+	if (GET_W_POSITION(buffer_buckets_positions) == GET_R_POSITION(buffer_buckets_positions)) {
+		// buffer is full, invalidate wpos
+		SET_W_POSITION(buffer_buckets_positions, ARRAY_LENGTH(buffer_buckets));
+	}
 }
 
 bool buffer_out(SI_VARIABLE_SEGMENT_POINTER(bucket, uint16_t, SI_SEG_XDATA))
@@ -335,6 +341,12 @@ bool buffer_out(SI_VARIABLE_SEGMENT_POINTER(bucket, uint16_t, SI_SEG_XDATA))
 	PCA0CPM0 &= ~PCA0CPM0_ECCF__ENABLED;
 
 	*bucket = buffer_buckets[GET_R_POSITION(buffer_buckets_positions)];
+
+	if (GET_W_POSITION(buffer_buckets_positions) >= ARRAY_LENGTH(buffer_buckets)) {
+		// buffer is not full anymore
+		SET_W_POSITION(buffer_buckets_positions, GET_R_POSITION(buffer_buckets_positions));
+	}
+
 	INC_R_POSITION(buffer_buckets_positions);
 
 	if (GET_R_POSITION(buffer_buckets_positions) >= ARRAY_LENGTH(buffer_buckets))
