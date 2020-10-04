@@ -328,9 +328,6 @@ int main (void)
 					// clear RF status
 					RF_DATA_STATUS = 0;
 
-					// enable interrupt for RF receiving
-					PCA0CPM0 |= PCA0CPM0_ECCF__ENABLED;
-
 					// enable UART again
 					ReadUARTData = true;
 				}
@@ -383,9 +380,6 @@ int main (void)
 
 					// clear RF status
 					RF_DATA_STATUS = 0;
-
-					// enable interrupt for RF receiving
-					PCA0CPM0 |= PCA0CPM0_ECCF__ENABLED;
 				}
 				else
 				{
@@ -555,9 +549,6 @@ int main (void)
 
 				// clear RF status
 				RF_DATA_STATUS = 0;
-
-				// enable interrupt for RF receiving
-				PCA0CPM0 |= PCA0CPM0_ECCF__ENABLED;
 			}
 			else
 			{

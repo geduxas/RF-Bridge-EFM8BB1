@@ -54,7 +54,7 @@ SI_SEGMENT_VARIABLE(bucket_count, uint8_t, SI_SEG_XDATA) = 0;
 #define CLR_R_POSITION(x) ((x) &= 0xF0)
 
 SI_SEGMENT_VARIABLE(buffer_buckets[4], uint16_t, SI_SEG_XDATA) = {0};
-SI_SEGMENT_VARIABLE(buffer_buckets_positions, uint8_t, SI_SEG_XDATA) = 0;
+SI_SEGMENT_VARIABLE(buffer_buckets_positions, volatile uint8_t, SI_SEG_XDATA) = 0;
 
 //-----------------------------------------------------------------------------
 // Callbacks
@@ -210,9 +210,6 @@ bool DecodeBucket(uint8_t i, bool high_low, uint16_t duration,
 			StopTimer2();
 			InitTimer2_ms(1, 800);
 			old_crc = crc;
-
-			// disable interrupt for RF receiving while uart transfer
-			PCA0CPM0 &= ~PCA0CPM0_ECCF__ENABLED;
 
 			// set status
 			RF_DATA_STATUS = i;
@@ -632,9 +629,6 @@ void Bucket_Received(uint16_t duration, bool high_low)
 					    rf_state = RF_IDLE;
 					    break;
 					}
-
-					// disable interrupt for RF receiving while uart transfer
-					PCA0CPM0 &= ~PCA0CPM0_ECCF__ENABLED;
 
 					// add sync bucket number to data
 					RF_DATA[0] |= ((bucket_count << 4) | ((bucket_sync & 0x8000) >> 8));
