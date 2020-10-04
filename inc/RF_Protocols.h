@@ -17,8 +17,10 @@
 /*
  * bucket sniffing constants
  */
-#define MIN_FOOTER_LENGTH	300
-#define MIN_BUCKET_LENGTH	100
+#define BUCKET_SYNC_MIN		300
+#define BUCKET_LENGTH_MIN	100
+#define BUCKET_GAP_MAX		12000
+#define BUCKET_PULSES_MIN	16
 
 #define PT226x_SYNC_MIN		4500
 
