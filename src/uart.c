@@ -49,7 +49,7 @@ SI_INTERRUPT(UART0_ISR, UART0_IRQn)
 	SCON0 &= ~flags;
 
 	// receiving byte
-	if ((flags &  SCON0_RI__SET))
+	if ((flags &  SCON0_RI__SET) && UART_RX_Buffer_Position < UART_RX_BUFFER_SIZE)
 	{
         /* store received data in buffer */
     	UART_RX_Buffer[UART_RX_Buffer_Position] = UART0_read();
@@ -58,6 +58,10 @@ SI_INTERRUPT(UART0_ISR, UART0_IRQn)
         // set to beginning of buffer if end is reached
         if ( UART_RX_Buffer_Position == UART_RX_BUFFER_SIZE )
 	    	UART_RX_Buffer_Position = 0;
+
+        // check and signal when the buffer is full
+        if ( UART_RX_Buffer_Position == UART_Buffer_Read_Position )
+            UART_RX_Buffer_Position = UART_RX_BUFFER_SIZE;
 	}
 
 	// transmit byte
@@ -91,6 +95,7 @@ Returns:  lower byte:  received byte from ringbuffer
 unsigned int uart_getc(void)
 {
 	unsigned int rxdata;
+	uint8_t last_pos = UART_Buffer_Read_Position;
 
     if ( UART_Buffer_Read_Position == UART_RX_Buffer_Position ) {
         return UART_NO_DATA;   /* no data available */
@@ -105,6 +110,10 @@ unsigned int uart_getc(void)
 
     rxdata |= (lastRxError << 8);
     lastRxError = 0;
+
+    if (UART_RX_Buffer_Position >= UART_RX_BUFFER_SIZE)
+        UART_RX_Buffer_Position = last_pos;
+
     return rxdata;
 }
 
