@@ -88,6 +88,7 @@ uint16_t compute_delta(uint16_t bucket)
 {
 	//return ((bucket >> 2) + (bucket >> 4));
 	return (bucket >> 2); // 25% delta of bucket for advanced decoding
+	//return ((duration >> 2) + (duration >> 3));	// findBucket
 }
 
 bool CheckRFBucket(uint16_t duration, uint16_t bucket, uint16_t delta)
@@ -546,7 +547,7 @@ bool findBucket(uint16_t duration, uint8_t *index)
 	for (i = 0; i < bucket_count; i++)
 	{
 		// calculate delta by the current duration and check if the new duration fits into
-		delta = ((duration >> 2) + (duration >> 3));
+		delta = compute_delta(duration);
 		delta = delta > buckets[i] ? buckets[i] : delta;
 
 		if (CheckRFBucket(duration, buckets[i], delta))
