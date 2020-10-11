@@ -44,11 +44,10 @@ extern void SendBuckets(
 extern void SendBucketsByIndex(uint8_t index, SI_VARIABLE_SEGMENT_POINTER(rfdata, uint8_t, SI_SEG_XDATA));
 extern void Bucket_Received(uint16_t duration, bool high_low);
 
-// 112 byte == 896 bits, so a RF signal with maximum of 896 bits is possible
-// for bucket transmission, this depends on the number of buckets.
-// E.g. 4 buckets have a total overhead of 11, allowing 101 bits (high/low pairs)
+// each byte contains one high/low pair, so the size of this buffer is
+// the real limit of the capturing process
 #if INCLUDE_BUCKET_SNIFFING == 1
-#define RF_DATA_BUFFERSIZE		112
+#define RF_DATA_BUFFERSIZE		200
 #else
 #define RF_DATA_BUFFERSIZE		32
 #endif

@@ -7,10 +7,10 @@
 #include <SI_EFM8BB1_Register_Enums.h>
 #include "Globals.h"
 
-SI_SEGMENT_VARIABLE(Timer_2_Timeout, uint16_t, SI_SEG_XDATA) = 0x0000;
-SI_SEGMENT_VARIABLE(Timer_2_Interval, uint16_t, SI_SEG_XDATA) = 0x0000;
-SI_SEGMENT_VARIABLE(Timer_3_Timeout, uint16_t, SI_SEG_XDATA) = 0x0000;
-SI_SEGMENT_VARIABLE(Timer_3_Interval, uint16_t, SI_SEG_XDATA) = 0x0000;
+SI_SEGMENT_VARIABLE(Timer_2_Timeout, static uint16_t, SI_SEG_DATA) = 0x0000;
+SI_SEGMENT_VARIABLE(Timer_2_Interval, static uint16_t, SI_SEG_DATA) = 0x0000;
+SI_SEGMENT_VARIABLE(Timer_3_Timeout, static uint16_t, SI_SEG_DATA) = 0x0000;
+SI_SEGMENT_VARIABLE(Timer_3_Interval, static uint16_t, SI_SEG_DATA) = 0x0000;
 
 void SetTimer2Reload(uint16_t reload)
 {
