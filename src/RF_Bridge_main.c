@@ -58,6 +58,7 @@ int main (void)
 	SI_SEGMENT_VARIABLE(tr_repeats, uint8_t, SI_SEG_XDATA);
 	SI_SEGMENT_VARIABLE(l, uint16_t, SI_SEG_XDATA);
 	SI_SEGMENT_VARIABLE(bucket, uint16_t, SI_SEG_XDATA);
+	SI_SEGMENT_VARIABLE(high_low, uint8_t, SI_SEG_XDATA);
 
 	// Call hardware initialization routine
 	enter_DefaultMode_from_RESET();
@@ -355,8 +356,8 @@ int main (void)
 				else
 				{
 					// handle new received buckets
-					if (buffer_out(&bucket))
-						HandleRFBucket(uart_command == RF_CODE_LEARN ? STANDARD : ADVANCED, bucket & 0x7FFF, (bool)((bucket & 0x8000) >> 15));
+					if (buffer_out(&bucket, &high_low))
+						HandleRFBucket(uart_command == RF_CODE_LEARN ? STANDARD : ADVANCED, bucket, (bool)high_low);
 				}
 				break;
 
@@ -384,8 +385,8 @@ int main (void)
 				else
 				{
 					// handle new received buckets
-					if (buffer_out(&bucket))
-						HandleRFBucket(uart_command == RF_CODE_RFIN ? STANDARD : ADVANCED, bucket & 0x7FFF, (bool)((bucket & 0x8000) >> 15));
+					if (buffer_out(&bucket, &high_low))
+						HandleRFBucket(uart_command == RF_CODE_RFIN ? STANDARD : ADVANCED, bucket, (bool)high_low);
 				}
 				break;
 
@@ -553,8 +554,8 @@ int main (void)
 			else
 			{
 				// do bucket sniffing handling
-				if (buffer_out(&bucket))
-					Bucket_Received(bucket & 0x7FFF, (bool)((bucket & 0x8000) >> 15));
+				if (buffer_out(&bucket, &high_low))
+					Bucket_Received(bucket, (bool)high_low);
 			}
 
 			break;

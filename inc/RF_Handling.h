@@ -26,7 +26,9 @@ typedef enum
 	ADVANCED
 } rf_sniffing_mode_t;
 
-extern bool buffer_out(SI_VARIABLE_SEGMENT_POINTER(bucket, uint16_t, SI_SEG_XDATA));
+extern bool buffer_out(
+		SI_VARIABLE_SEGMENT_POINTER(bucket, uint16_t, SI_SEG_XDATA),
+		SI_VARIABLE_SEGMENT_POINTER(high_low, uint8_t, SI_SEG_XDATA));
 extern void HandleRFBucket(rf_sniffing_mode_t sniffing_mode, uint16_t duration, bool high_low);
 extern void PCA0_DoSniffing(void);
 extern void PCA0_StopSniffing(void);

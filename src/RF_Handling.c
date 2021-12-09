@@ -93,7 +93,7 @@ uint16_t compute_delta(uint16_t bucket)
 
 bool CheckRFBucket(uint16_t duration, uint16_t bucket, uint16_t delta)
 {
-	return (((bucket - delta) < duration) && (duration < (bucket + delta)));
+	return (bucket < 65535 - delta) ? (((bucket - delta) < duration) && (duration < (bucket + delta))) : ((bucket - delta) < duration);
 }
 
 bool CheckRFSyncBucket(uint16_t duration, uint16_t bucket)
@@ -329,7 +329,7 @@ void buffer_in(uint16_t bucket)
 	}
 }
 
-bool buffer_out(SI_VARIABLE_SEGMENT_POINTER(bucket, uint16_t, SI_SEG_XDATA))
+bool buffer_out(SI_VARIABLE_SEGMENT_POINTER(bucket, uint16_t, SI_SEG_XDATA), SI_VARIABLE_SEGMENT_POINTER(high_low, uint8_t, SI_SEG_XDATA))
 {
 	uint8_t backup_PCA0CPM0 = PCA0CPM0;
 
@@ -355,6 +355,9 @@ bool buffer_out(SI_VARIABLE_SEGMENT_POINTER(bucket, uint16_t, SI_SEG_XDATA))
 	// reset register
 	PCA0CPM0 = backup_PCA0CPM0;
 
+	*high_low	= (*bucket & 0x8000) ? true : false;
+	*bucket		= (*bucket & 0x7FFF) * 10;
+
 	return true;
 }
 
@@ -363,13 +366,9 @@ void PCA0_channel0EventCb()
 	uint16_t current_capture_value = PCA0CP0;
 	uint8_t flags = PCA0MD;
 
-	if (current_capture_value > 3276)
+	if (current_capture_value > 6553)
 	{
-		current_capture_value = 0x7FFF;
-	}
-	else
-	{
-		current_capture_value *= 10;
+		current_capture_value = 6553;
 	}
 
 	// clear counter
