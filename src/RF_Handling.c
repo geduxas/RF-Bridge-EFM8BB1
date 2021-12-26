@@ -20,9 +20,6 @@ SI_SEGMENT_VARIABLE(RF_DATA[RF_DATA_BUFFERSIZE], uint8_t, SI_SEG_XDATA);
 // Bit 6-0:	Protocol identifier
 SI_SEGMENT_VARIABLE(RF_DATA_STATUS, uint8_t, SI_SEG_XDATA) = 0;
 SI_SEGMENT_VARIABLE(rf_state, rf_state_t, SI_SEG_XDATA) = RF_IDLE;
-SI_SEGMENT_VARIABLE(sniffing_mode, rf_sniffing_mode_t, SI_SEG_XDATA) = STANDARD;
-
-SI_SEGMENT_VARIABLE(last_sniffing_command, uint8_t, SI_SEG_XDATA) = NONE;
 
 // PT226x variables
 SI_SEGMENT_VARIABLE(SYNC_LOW, uint16_t, SI_SEG_XDATA) = 0x00;
@@ -39,19 +36,17 @@ SI_SEGMENT_VARIABLE(old_crc, uint8_t, SI_SEG_XDATA) = 0;
 SI_SEGMENT_VARIABLE(crc, uint8_t, SI_SEG_XDATA) = 0;
 
 // up to 8 timing buckets for RF_CODE_SNIFFING_ON_BUCKET
-SI_SEGMENT_VARIABLE(buckets[7], uint16_t, SI_SEG_XDATA);	// -1 because of the bucket_sync
+SI_SEGMENT_VARIABLE(buckets[8], uint16_t, SI_SEG_XDATA);
 
 #if INCLUDE_BUCKET_SNIFFING == 1
-SI_SEGMENT_VARIABLE(bucket_sync, uint16_t, SI_SEG_XDATA);
 SI_SEGMENT_VARIABLE(bucket_count, uint8_t, SI_SEG_XDATA) = 0;
-SI_SEGMENT_VARIABLE(bucket_count_sync_1, uint8_t, SI_SEG_XDATA);
-SI_SEGMENT_VARIABLE(bucket_count_sync_2, uint8_t, SI_SEG_XDATA);
 #endif
 
 #define GET_W_POSITION(x) (((x) >> 4) & 0x0F)
 #define INC_W_POSITION(x) ((x) = ((((x) >> 4) + 1) << 4) | ((x) & 0x0F))
 #define DEC_W_POSITION(x) ((x) = ((((x) >> 4) - 1) << 4) | ((x) & 0x0F))
 #define CLR_W_POSITION(x) ((x) &= 0x0F)
+#define SET_W_POSITION(x, y) ((x) = ((y) << 4) | ((x) & 0x0F))
 
 #define GET_R_POSITION(x) ((x) & 0x0F)
 #define INC_R_POSITION(x) ((x) = ((x) + 1) | ((x) & 0xF0))
@@ -59,7 +54,7 @@ SI_SEGMENT_VARIABLE(bucket_count_sync_2, uint8_t, SI_SEG_XDATA);
 #define CLR_R_POSITION(x) ((x) &= 0xF0)
 
 SI_SEGMENT_VARIABLE(buffer_buckets[4], uint16_t, SI_SEG_XDATA) = {0};
-SI_SEGMENT_VARIABLE(buffer_buckets_positions, uint8_t, SI_SEG_XDATA) = 0;
+SI_SEGMENT_VARIABLE(buffer_buckets_positions, volatile uint8_t, SI_SEG_XDATA) = 0;
 
 //-----------------------------------------------------------------------------
 // Callbacks
@@ -93,11 +88,12 @@ uint16_t compute_delta(uint16_t bucket)
 {
 	//return ((bucket >> 2) + (bucket >> 4));
 	return (bucket >> 2); // 25% delta of bucket for advanced decoding
+	//return ((duration >> 2) + (duration >> 3));	// findBucket
 }
 
 bool CheckRFBucket(uint16_t duration, uint16_t bucket, uint16_t delta)
 {
-	return (((bucket - delta) < duration) && (duration < (bucket + delta)));
+	return (bucket < 65535 - delta) ? (((bucket - delta) < duration) && (duration < (bucket + delta))) : ((bucket - delta) < duration);
 }
 
 bool CheckRFSyncBucket(uint16_t duration, uint16_t bucket)
@@ -216,9 +212,6 @@ bool DecodeBucket(uint8_t i, bool high_low, uint16_t duration,
 			InitTimer2_ms(1, 800);
 			old_crc = crc;
 
-			// disable interrupt for RF receiving while uart transfer
-			PCA0CPM0 &= ~PCA0CPM0_ECCF__ENABLED;
-
 			// set status
 			RF_DATA_STATUS = i;
 			RF_DATA_STATUS |= RF_DATA_RECEIVED_MASK;
@@ -232,12 +225,12 @@ bool DecodeBucket(uint8_t i, bool high_low, uint16_t duration,
 	return false;
 }
 
-void HandleRFBucket(uint16_t duration, bool high_low)
+void HandleRFBucket(rf_sniffing_mode_t sniffing_mode, uint16_t duration, bool high_low)
 {
 	uint8_t i = 0;
 
 	// if noise got received stop all running decodings
-	if (duration < MIN_BUCKET_LENGTH)
+	if (duration < BUCKET_LENGTH_MIN)
 	{
 		for (i = 0; i < PROTOCOLCOUNT; i++)
 			START_CLEAR(status[i]);
@@ -319,8 +312,8 @@ void HandleRFBucket(uint16_t duration, bool high_low)
 
 void buffer_in(uint16_t bucket)
 {
-	if ((GET_W_POSITION(buffer_buckets_positions) + 1 == GET_R_POSITION(buffer_buckets_positions)) ||
-			(GET_R_POSITION(buffer_buckets_positions) == 0 && GET_W_POSITION(buffer_buckets_positions) + 1 == ARRAY_LENGTH(buffer_buckets)))
+	// invalid wpos means a full buffer
+	if (GET_W_POSITION(buffer_buckets_positions) >= ARRAY_LENGTH(buffer_buckets))
 		return;
 
 	buffer_buckets[GET_W_POSITION(buffer_buckets_positions)] = bucket;
@@ -329,9 +322,14 @@ void buffer_in(uint16_t bucket)
 
 	if (GET_W_POSITION(buffer_buckets_positions) >= ARRAY_LENGTH(buffer_buckets))
 		CLR_W_POSITION(buffer_buckets_positions);
+
+	if (GET_W_POSITION(buffer_buckets_positions) == GET_R_POSITION(buffer_buckets_positions)) {
+		// buffer is full, invalidate wpos
+		SET_W_POSITION(buffer_buckets_positions, ARRAY_LENGTH(buffer_buckets));
+	}
 }
 
-bool buffer_out(SI_VARIABLE_SEGMENT_POINTER(bucket, uint16_t, SI_SEG_XDATA))
+bool buffer_out(SI_VARIABLE_SEGMENT_POINTER(bucket, uint16_t, SI_SEG_XDATA), SI_VARIABLE_SEGMENT_POINTER(high_low, uint8_t, SI_SEG_XDATA))
 {
 	uint8_t backup_PCA0CPM0 = PCA0CPM0;
 
@@ -343,6 +341,12 @@ bool buffer_out(SI_VARIABLE_SEGMENT_POINTER(bucket, uint16_t, SI_SEG_XDATA))
 	PCA0CPM0 &= ~PCA0CPM0_ECCF__ENABLED;
 
 	*bucket = buffer_buckets[GET_R_POSITION(buffer_buckets_positions)];
+
+	if (GET_W_POSITION(buffer_buckets_positions) >= ARRAY_LENGTH(buffer_buckets)) {
+		// buffer is not full anymore
+		SET_W_POSITION(buffer_buckets_positions, GET_R_POSITION(buffer_buckets_positions));
+	}
+
 	INC_R_POSITION(buffer_buckets_positions);
 
 	if (GET_R_POSITION(buffer_buckets_positions) >= ARRAY_LENGTH(buffer_buckets))
@@ -351,13 +355,21 @@ bool buffer_out(SI_VARIABLE_SEGMENT_POINTER(bucket, uint16_t, SI_SEG_XDATA))
 	// reset register
 	PCA0CPM0 = backup_PCA0CPM0;
 
+	*high_low	= (*bucket & 0x8000) ? true : false;
+	*bucket		= (*bucket & 0x7FFF) * 10;
+
 	return true;
 }
 
 void PCA0_channel0EventCb()
 {
-	uint16_t current_capture_value = PCA0CP0 * 10;
+	uint16_t current_capture_value = PCA0CP0;
 	uint8_t flags = PCA0MD;
+
+	if (current_capture_value > 6553)
+	{
+		current_capture_value = 6553;
+	}
 
 	// clear counter
 	PCA0MD &= 0xBF;
@@ -365,16 +377,7 @@ void PCA0_channel0EventCb()
 	PCA0L = 0x00;
 	PCA0MD = flags;
 
-	// if bucket is no noise add it to buffer
-	if (/*current_capture_value > MIN_PULSE_LENGTH &&*/ current_capture_value < 0x8000)
-	{
-		buffer_in(current_capture_value | ((uint16_t)(!R_DATA) << 15));
-	}
-	else
-	{
-		// received noise, clear all received buckets
-		buffer_buckets_positions = 0;
-	}
+	buffer_in(current_capture_value | ((uint16_t)(!R_DATA) << 15));
 }
 
 void PCA0_channel1EventCb() { }
@@ -389,10 +392,8 @@ void SetTimer0Overflow(uint8_t T0_Overflow)
 	TH0 = (T0_Overflow << TH0_TH0__SHIFT);
 }
 
-uint8_t PCA0_DoSniffing(uint8_t active_command)
+void PCA0_DoSniffing(void)
 {
-	uint8_t ret = last_sniffing_command;
-
 	memset(status, 0, sizeof(PROTOCOL_STATUS) * PROTOCOLCOUNT);
 
 	// restore timer to 100000Hz, 10µs interval
@@ -410,14 +411,6 @@ uint8_t PCA0_DoSniffing(uint8_t active_command)
 
 	rf_state = RF_IDLE;
 	RF_DATA_STATUS = 0;
-
-	// set uart_command back if sniffing was on
-	uart_command = active_command;
-
-	// backup uart_command to be able to enable the sniffing again
-	last_sniffing_command = active_command;
-
-	return ret;
 }
 
 void PCA0_StopSniffing(void)
@@ -545,19 +538,6 @@ void SendBucketsByIndex(uint8_t index, SI_VARIABLE_SEGMENT_POINTER(rfdata, uint8
 }
 
 #if INCLUDE_BUCKET_SNIFFING == 1
-bool probablyFooter(uint16_t duration)
-{
-	return duration >= MIN_FOOTER_LENGTH;
-}
-
-bool matchesFooter(uint16_t duration, bool high_low)
-{
-	if (!((bucket_sync & 0x8000) >> 15) && high_low)
-		return false;
-
-	return CheckRFSyncBucket(duration, bucket_sync & 0x7FFF);
-}
-
 bool findBucket(uint16_t duration, uint8_t *index)
 {
 	uint8_t i;
@@ -566,7 +546,7 @@ bool findBucket(uint16_t duration, uint8_t *index)
 	for (i = 0; i < bucket_count; i++)
 	{
 		// calculate delta by the current duration and check if the new duration fits into
-		delta = ((duration >> 2) + (duration >> 3));
+		delta = compute_delta(duration);
 		delta = delta > buckets[i] ? buckets[i] : delta;
 
 		if (CheckRFBucket(duration, buckets[i], delta))
@@ -583,147 +563,89 @@ void Bucket_Received(uint16_t duration, bool high_low)
 {
 	uint8_t bucket_index;
 
-	// if pulse is too short reset status
-	if (duration < MIN_BUCKET_LENGTH)
-	{
-		rf_state = RF_IDLE;
-		return;
-	}
-
 	switch (rf_state)
 	{
 		// check if we maybe receive a sync
 		case RF_IDLE:
 			LED = LED_OFF;
 
-			if (probablyFooter(duration))
+			if (high_low && duration >= BUCKET_SYNC_MIN)
 			{
-				bucket_sync = duration | ((uint16_t)high_low << 15);
-				bucket_count_sync_1 = 0;
-				rf_state = RF_BUCKET_REPEAT;
+				buckets[0] = duration;
+				bucket_count = 1;
+				actual_byte = 0;
+				actual_byte_high_nibble = false;
+				RF_DATA[0] = 0x80;
+				rf_state = RF_BUCKET_IN_SYNC;
 			}
 			break;
 
-		// check if the same bucket gets received
-		case RF_BUCKET_REPEAT:
-			if (matchesFooter(duration, high_low))
+		case RF_BUCKET_IN_SYNC:
+			if (duration < BUCKET_LENGTH_MIN)
 			{
-				// check if a minimum of buckets where between two sync pulses
-				if (bucket_count_sync_1 > 4)
-				{
-					LED = LED_ON;
-					bucket_count = 0;
-					actual_byte = 0;
-					actual_byte_high_nibble = false;
-					bucket_count_sync_2 = 0;
-					crc = 0x00;
-					RF_DATA[0] = 0;
-					rf_state = RF_BUCKET_IN_SYNC;
-				}
-				else
-				{
-					rf_state = RF_IDLE;
-				}
-			}
-			// check if duration is longer than sync bucket restart
-			else if (duration > (bucket_sync & 0x7FFF))
-			{
-				// this bucket looks like the sync bucket
-				bucket_sync = duration | ((uint16_t)high_low << 15);
-				bucket_count_sync_1 = 0;
+				rf_state = RF_IDLE;
 			}
 			else
 			{
-				bucket_count_sync_1++;
-			}
+				if (actual_byte >= BUCKET_PULSES_MIN / 2)
+				{
+					LED = LED_ON;
+				}
 
-			// no more buckets are possible, reset
-			if (bucket_count_sync_1 >= RF_DATA_BUFFERSIZE << 1)
-				rf_state = RF_IDLE;
-
-			break;
-
-		// same sync bucket got received, filter buckets
-		case RF_BUCKET_IN_SYNC:
-			bucket_count_sync_2++;
-
-			// check if all buckets got received
-			if (bucket_count_sync_2 <= bucket_count_sync_1)
-			{
 				// check if bucket was already received
 				if (!findBucket(duration, &bucket_index))
 				{
+					// check if maximum of array got reached
+					if (bucket_count >= ARRAY_LENGTH(buckets))
+					{
+						// restart sync
+						rf_state = RF_IDLE;
+						break;
+					}
+
 					// new bucket received, add to array
 					buckets[bucket_count] = duration;
 					bucket_index = bucket_count;
 					bucket_count++;
-
-					// check if maximum of array got reached
-					if (bucket_count > ARRAY_LENGTH(buckets))
-					{
-						// restart sync
-						rf_state = RF_IDLE;
-					}
 				}
 
 				// fill rf data with the current bucket number
 				if (actual_byte_high_nibble)
 				{
+					// check if maximum of array got reached
+					if (actual_byte >= RF_DATA_BUFFERSIZE)
+					{
+						// restart sync
+						rf_state = RF_IDLE;
+						break;
+					}
+
 					RF_DATA[actual_byte] = (bucket_index << 4) | ((uint8_t)high_low << 7);
+
+					actual_byte_high_nibble = false;
 				}
 				else
 				{
 					RF_DATA[actual_byte] |= (bucket_index | ((uint8_t)high_low << 3));
 
-					crc = Compute_CRC8_Simple_OneByte(crc ^ RF_DATA[actual_byte]);
-
 					actual_byte++;
-
-					// check if maximum of array got reached
-					if (actual_byte > RF_DATA_BUFFERSIZE)
-					{
-						// restart sync
-						rf_state = RF_IDLE;
-					}
+					actual_byte_high_nibble = true;
 				}
 
-				actual_byte_high_nibble = !actual_byte_high_nibble;
-			}
-			// next bucket after data have to be a sync bucket
-			else if (matchesFooter(duration, high_low))
-			{
-				// check if timeout timer for crc is finished
-				if (IsTimer2Finished())
-					old_crc = 0;
-
-				// check new crc on last received data for debounce
-				if (crc != old_crc)
+				if (!high_low && duration >= BUCKET_GAP_MAX)
 				{
-					// new data, restart crc timeout
-					StopTimer2();
-					InitTimer2_ms(1, 800);
-					old_crc = crc;
-
-					// disable interrupt for RF receiving while uart transfer
-					PCA0CPM0 &= ~PCA0CPM0_ECCF__ENABLED;
-
-					// add sync bucket number to data
-					RF_DATA[0] |= ((bucket_count << 4) | ((bucket_sync & 0x8000) >> 8));
-
-					// clear high/low flag
-					bucket_sync &= 0x7FFF;
+					if (actual_byte < BUCKET_PULSES_MIN / 2)
+					{
+					    LED = LED_OFF;
+					    rf_state = RF_IDLE;
+					    break;
+					}
 
 					RF_DATA_STATUS |= RF_DATA_RECEIVED_MASK;
-				}
 
-				LED = LED_OFF;
-				rf_state = RF_IDLE;
-			}
-			// next bucket after receiving all data buckets was not a sync bucket, restart
-			else
-			{
-				// restart sync
-				rf_state = RF_IDLE;
+					LED = LED_OFF;
+					rf_state = RF_IDLE;
+				}
 			}
 			break;
 	}

@@ -15,8 +15,8 @@
 #define RF_CODE_START		0xAA
 #define RF_CODE_STOP		0x55
 
-#define UART_RX_BUFFER_SIZE	64
-#define UART_TX_BUFFER_SIZE	32
+#define UART_RX_BUFFER_SIZE	16
+#define UART_TX_BUFFER_SIZE	16
 
 /*
 ** high byte error return code of uart_getc()
@@ -67,8 +67,8 @@ typedef enum
 //-----------------------------------------------------------------------------
 // Global Variables
 //-----------------------------------------------------------------------------
-extern SI_SEGMENT_VARIABLE(uart_state, uart_state_t, SI_SEG_XDATA);
-extern SI_SEGMENT_VARIABLE(uart_command, uart_command_t, SI_SEG_XDATA);
+extern SI_SEGMENT_VARIABLE(uart_state, uart_state_t, SI_SEG_DATA);
+extern SI_SEGMENT_VARIABLE(uart_command, uart_command_t, SI_SEG_DATA);
 
 extern unsigned int uart_getc(void);
 extern void uart_put_command(uint8_t command);

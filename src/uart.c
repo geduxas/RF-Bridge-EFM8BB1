@@ -16,17 +16,16 @@
 //-----------------------------------------------------------------------------
 // Global Variables
 //-----------------------------------------------------------------------------
-SI_SEGMENT_VARIABLE(UART_RX_Buffer[UART_RX_BUFFER_SIZE], uint8_t, SI_SEG_XDATA);
-SI_SEGMENT_VARIABLE(UART_TX_Buffer[UART_TX_BUFFER_SIZE], uint8_t, SI_SEG_DATA);
-SI_SEGMENT_VARIABLE(UART_RX_Buffer_Position, static volatile uint8_t,  SI_SEG_XDATA)=0;
-SI_SEGMENT_VARIABLE(UART_TX_Buffer_Position, static volatile uint8_t,  SI_SEG_XDATA)=0;
-SI_SEGMENT_VARIABLE(UART_Buffer_Read_Position, static volatile uint8_t,  SI_SEG_XDATA)=0;
-SI_SEGMENT_VARIABLE(UART_Buffer_Write_Position, static volatile uint8_t,  SI_SEG_XDATA)=0;
-SI_SEGMENT_VARIABLE(UART_Buffer_Write_Len, static volatile uint8_t,  SI_SEG_XDATA)=0;
-SI_SEGMENT_VARIABLE(lastRxError, static volatile uint8_t,  SI_SEG_XDATA)=0;
-SI_SEGMENT_VARIABLE(TX_Finished, bool, SI_SEG_DATA) = false;
-SI_SEGMENT_VARIABLE(uart_state, uart_state_t, SI_SEG_XDATA) = IDLE;
-SI_SEGMENT_VARIABLE(uart_command, uart_command_t, SI_SEG_XDATA) = NONE;
+SI_SEGMENT_VARIABLE(UART_RX_Buffer[UART_RX_BUFFER_SIZE], static uint8_t, SI_SEG_IDATA);
+SI_SEGMENT_VARIABLE(UART_TX_Buffer[UART_TX_BUFFER_SIZE], static uint8_t, SI_SEG_IDATA);
+SI_SEGMENT_VARIABLE(UART_RX_Buffer_Position, static volatile uint8_t,  SI_SEG_DATA)=0;
+SI_SEGMENT_VARIABLE(UART_TX_Buffer_Position, static volatile uint8_t,  SI_SEG_DATA)=0;
+SI_SEGMENT_VARIABLE(UART_Buffer_Read_Position, static volatile uint8_t,  SI_SEG_DATA)=0;
+SI_SEGMENT_VARIABLE(UART_Buffer_Write_Position, static volatile uint8_t,  SI_SEG_DATA)=0;
+SI_SEGMENT_VARIABLE(UART_Buffer_Write_Len, static volatile uint8_t,  SI_SEG_DATA) = 0xFF;
+SI_SEGMENT_VARIABLE(lastRxError, static volatile uint8_t,  SI_SEG_DATA)=0;
+SI_SEGMENT_VARIABLE(uart_state, uart_state_t, SI_SEG_DATA) = IDLE;
+SI_SEGMENT_VARIABLE(uart_command, uart_command_t, SI_SEG_DATA) = RF_CODE_RFIN;
 
 //-----------------------------------------------------------------------------
 // UART ISR Callbacks
@@ -49,7 +48,7 @@ SI_INTERRUPT(UART0_ISR, UART0_IRQn)
 	SCON0 &= ~flags;
 
 	// receiving byte
-	if ((flags &  SCON0_RI__SET))
+	if ((flags &  SCON0_RI__SET) && UART_RX_Buffer_Position < UART_RX_BUFFER_SIZE)
 	{
         /* store received data in buffer */
     	UART_RX_Buffer[UART_RX_Buffer_Position] = UART0_read();
@@ -58,28 +57,29 @@ SI_INTERRUPT(UART0_ISR, UART0_IRQn)
         // set to beginning of buffer if end is reached
         if ( UART_RX_Buffer_Position == UART_RX_BUFFER_SIZE )
 	    	UART_RX_Buffer_Position = 0;
+
+        // check and signal when the buffer is full
+        if ( UART_RX_Buffer_Position == UART_Buffer_Read_Position )
+            UART_RX_Buffer_Position = UART_RX_BUFFER_SIZE;
 	}
 
 	// transmit byte
-	if ((flags & SCON0_TI__SET))
-	{
-		if (UART_Buffer_Write_Len > 0)
-		{
-			UART0_write(UART_TX_Buffer[UART_Buffer_Write_Position]);
-			UART_Buffer_Write_Position++;
-			UART_Buffer_Write_Len--;
-		}
-		else
-			TX_Finished = true;
+	if ((flags &  SCON0_TI__SET))
+    {
+        if (UART_Buffer_Write_Len > 0 && UART_Buffer_Write_Len != 0xFF)
+        {
+            UART0_write(UART_TX_Buffer[UART_Buffer_Write_Position]);
+            UART_Buffer_Write_Position++;
+            UART_Buffer_Write_Len--;
 
-		if (UART_Buffer_Write_Position == UART_TX_BUFFER_SIZE)
-			UART_Buffer_Write_Position = 0;
-	}
-}
-
-void uart_wait_until_TX_finished(void)
-{
-	while(!TX_Finished);
+            if (UART_Buffer_Write_Position == UART_TX_BUFFER_SIZE)
+                UART_Buffer_Write_Position = 0;
+        }
+        else
+        {
+            UART_Buffer_Write_Len = 0xFF;
+        }
+    }
 }
 
 /*************************************************************************
@@ -91,6 +91,7 @@ Returns:  lower byte:  received byte from ringbuffer
 unsigned int uart_getc(void)
 {
 	unsigned int rxdata;
+	uint8_t last_pos = UART_Buffer_Read_Position;
 
     if ( UART_Buffer_Read_Position == UART_RX_Buffer_Position ) {
         return UART_NO_DATA;   /* no data available */
@@ -105,6 +106,10 @@ unsigned int uart_getc(void)
 
     rxdata |= (lastRxError << 8);
     lastRxError = 0;
+
+    if (UART_RX_Buffer_Position >= UART_RX_BUFFER_SIZE)
+        UART_RX_Buffer_Position = last_pos;
+
     return rxdata;
 }
 
@@ -116,14 +121,26 @@ Returns:  none
 **************************************************************************/
 void uart_putc(uint8_t txdata)
 {
-	TX_Finished = false;
+    if (UART_Buffer_Write_Len == 0xFF)
+    {
+        UART_Buffer_Write_Len = 0;
+        SCON0_TI = 0;
 
-	if (UART_TX_Buffer_Position == UART_TX_BUFFER_SIZE)
-		UART_TX_Buffer_Position = 0;
+        UART0_write(txdata);
+    }
+    else
+    {
+        // wait until there's at least on free position in the buffer
+        while (UART_Buffer_Write_Len >= UART_TX_BUFFER_SIZE);
 
-	UART_TX_Buffer[UART_TX_Buffer_Position] = txdata;
-	UART_TX_Buffer_Position++;
-	UART_Buffer_Write_Len++;
+        UART_TX_Buffer[UART_TX_Buffer_Position] = txdata;
+        UART_TX_Buffer_Position++;
+
+        if (UART_TX_Buffer_Position >= UART_TX_BUFFER_SIZE)
+            UART_TX_Buffer_Position = 0;
+
+        UART_Buffer_Write_Len++;
+    }
 }
 
 void uart_put_command(uint8_t command)
@@ -131,7 +148,6 @@ void uart_put_command(uint8_t command)
 	uart_putc(RF_CODE_START);
 	uart_putc(command);
 	uart_putc(RF_CODE_STOP);
-	UART0_initTxPolling();
 }
 
 void uart_put_RF_Data_Advanced(uint8_t Command, uint8_t protocol_index)
@@ -164,8 +180,6 @@ void uart_put_RF_Data_Advanced(uint8_t Command, uint8_t protocol_index)
 		i++;
 	}
 	uart_putc(RF_CODE_STOP);
-
-	UART0_initTxPolling();
 }
 
 void uart_put_RF_Data_Standard(uint8_t Command)
@@ -194,8 +208,6 @@ void uart_put_RF_Data_Standard(uint8_t Command)
 		i++;
 	}
 	uart_putc(RF_CODE_STOP);
-
-	UART0_initTxPolling();
 }
 
 #if INCLUDE_BUCKET_SNIFFING == 1
@@ -205,14 +217,9 @@ void uart_put_RF_buckets(uint8_t Command)
 
 	uart_putc(RF_CODE_START);
 	uart_putc(Command);
-	// put bucket count + sync bucket
-	uart_putc(bucket_count + 1);
+	uart_putc(bucket_count);
 
-	// start and wait for transmit
-	UART0_initTxPolling();
-	uart_wait_until_TX_finished();
-
-	// send up to 7 buckets
+	// send up to 8 buckets
 	while (i < bucket_count)
 	{
 		uart_putc((buckets[i] >> 8) & 0x7F);
@@ -220,31 +227,13 @@ void uart_put_RF_buckets(uint8_t Command)
 		i++;
 	}
 
-	// send sync bucket
-	uart_putc((bucket_sync >> 8) & 0x7F);
-	uart_putc(bucket_sync & 0xFF);
-
-	// start and wait for transmit
-	UART0_initTxPolling();
-	uart_wait_until_TX_finished();
-
 	i = 0;
 	while(i < actual_byte)
 	{
 		uart_putc(RF_DATA[i]);
 		i++;
-
-		// be safe to have no buffer overflow
-		if ((i % UART_TX_BUFFER_SIZE) == 0)
-		{
-			// start and wait for transmit
-			UART0_initTxPolling();
-			uart_wait_until_TX_finished();
-		}
 	}
 
 	uart_putc(RF_CODE_STOP);
-
-	UART0_initTxPolling();
 }
 #endif
