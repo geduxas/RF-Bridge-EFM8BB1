@@ -87,6 +87,17 @@ SI_SEGMENT_VARIABLE(PROTOCOL_BIT1(PT226X)[], static uint8_t, SI_SEG_CODE) = { HI
 #endif
 
 /*
+ * Silvercrest Doorbell
+ */
+#if EFM8BB1_SUPPORT_LidlDoor_PROTOCOL == 1
+#define LidlDoor
+SI_SEGMENT_VARIABLE(PROTOCOL_BUCKETS(LidlDoor)[], static uint16_t, SI_SEG_CODE) = { 550, 1450, 400, 15520 };
+SI_SEGMENT_VARIABLE(PROTOCOL_START(LidlDoor)[], static uint8_t, SI_SEG_CODE) = { HIGH(0), LOW(3) };
+SI_SEGMENT_VARIABLE(PROTOCOL_BIT0(LidlDoor)[], static uint8_t, SI_SEG_CODE) = { HIGH(0), LOW(1) };
+SI_SEGMENT_VARIABLE(PROTOCOL_BIT1(LidlDoor)[], static uint8_t, SI_SEG_CODE) = { HIGH(1), LOW(0) };
+#endif
+
+/*
  * Rohrmotor24
  * https://github.com/bjwelker/Raspi-Rollo/tree/master/Arduino/Rollo_Code_Receiver
  */
@@ -334,6 +345,19 @@ SI_SEGMENT_VARIABLE(PROTOCOL_DATA[], static struct BUCKET_PROTOCOL_DATA, SI_SEG_
 			24
 		},
 #endif
+#if EFM8BB1_SUPPORT_LidlDoor_PROTOCOL == 1
+		/*
+		 * Lidl silvercrest door protocol
+		 */
+		{
+			{ &PROTOCOL_BUCKETS(LidlDoor), ARRAY_LENGTH(PROTOCOL_BUCKETS(LidlDoor)) },
+			{ &PROTOCOL_START(LidlDoor), ARRAY_LENGTH(PROTOCOL_START(LidlDoor)) },
+			{ &PROTOCOL_BIT0(LidlDoor), ARRAY_LENGTH(PROTOCOL_BIT0(LidlDoor)) },
+			{ &PROTOCOL_BIT1(LidlDoor), ARRAY_LENGTH(PROTOCOL_BIT1(LidlDoor)) },
+			{ NULL, 0 },
+			24
+		},
+#endif 
 #if EFM8BB1_SUPPORT_Rohrmotor24_PROTOCOL == 1
 		/*
 		 * Rohrmotor24
