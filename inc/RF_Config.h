@@ -36,3 +36,4 @@
 #define EFM8BB1_SUPPORT_DT_5514_PROTOCOL		1		// 5514 SILENT Dual Tech, Issue #104
 #define EFM8BB1_SUPPORT_H13726_PROTOCOL			1		// Auriol H13726 Weather Station, Issue #106
 #define EFM8BB1_SUPPORT_LidlDoor_PROTOCOL		1		// Silvercrest Doorbell
+#define EFM8BB1_SUPPORT_TE44_PROTOCOL           1       // Solight-TE44 temperature sensor
